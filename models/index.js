@@ -46,4 +46,15 @@ const db = {
     MovieActor,
 }
 
+async function initializeDB() {
+    try {
+        await sequelize.sync({ alter: true })
+        console.log("Database synced")
+    } catch (err) {
+        console.error("Failed to sync database:", err)
+    }
+}
+
+initializeDB()
+
 export default db

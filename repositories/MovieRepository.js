@@ -1,12 +1,12 @@
 import db from "../models/index.js"
-import fs from "fs"
-import readline from "readline"
+
+const { Op } = db.Sequelize
 
 export default class MovieRepository {
     async add(movieData) {
         const movie = await db.Movie.create(movieData)
 
-        if (movieData.actors && movieData.actors.length) {
+        if (movieData.actors?.length) {
             for (const actorName of movieData.actors) {
                 const [actor] = await db.Actor.findOrCreate({
                     where: { name: actorName },
@@ -28,106 +28,138 @@ export default class MovieRepository {
         })
     }
 
+    async update(id, movieData) {
+        const movie = await db.Movie.findByPk(id, {
+            include: [
+                { model: db.Actor, through: { attributes: [] }, as: "Actors" },
+            ],
+        })
+
+        if (!movie) throw new Error("Movie not found")
+
+        await movie.update(movieData)
+
+        if (movieData.actors) {
+            const actorsToAdd = []
+            for (const actorName of movieData.actors) {
+                const [actor] = await db.Actor.findOrCreate({
+                    where: { name: actorName },
+                })
+                actorsToAdd.push(actor)
+            }
+            await movie.setActors(actorsToAdd)
+        }
+
+        return db.Movie.findByPk(movie.id, {
+            include: [
+                { model: db.Actor, through: { attributes: [] }, as: "Actors" },
+                { model: db.Format },
+            ],
+        })
+    }
+
     async delete(id) {
         return db.Movie.destroy({ where: { id } })
     }
 
     async getById(id) {
-        return db.Movie.findByPk(id, { include: [db.Format, db.Actor] })
-    }
-
-    async getAllSorted(options = {}) {
-        const { sort = "title", order = "ASC" } = options
-
-        const sortMap = {
-            title: "title",
-            year: "year",
-            createdAt: "createdAt",
-        }
-
-        const sortField = sortMap[sort] || "title"
-
-        return db.Movie.findAll({
-            order: [[sortField, order.toUpperCase()]],
+        return db.Movie.findByPk(id, {
             include: [db.Format, db.Actor],
         })
     }
 
-    async findByTitle(title) {
-        return db.Movie.findAll({
-            where: { title: { [db.Sequelize.Op.like]: `%${title}%` } },
+    async findDuplicate({ title, year, formatId }) {
+        return db.Movie.findOne({
+            where: { title, year, formatId },
             include: [db.Format, db.Actor],
         })
     }
 
-    async findByActorName(actorName) {
-        return db.Movie.findAll({
-            include: {
+    async findAll({
+        search,
+        actor,
+        title,
+        sort = "id",
+        order = "ASC",
+        limit = 20,
+        offset = 0,
+    } = {}) {
+        const include = [
+            { model: db.Format },
+            {
                 model: db.Actor,
-                where: { name: { [db.Sequelize.Op.like]: `%${actorName}%` } },
+                through: { attributes: [] },
+                as: "Actors",
+                required: false,
             },
-        })
-    }
+        ]
 
-    async importFromFile(filePath, userId = 1) {
-        const addedMovies = []
+        let where = {}
 
-        const fileStream = fs.createReadStream(filePath)
-        const rl = readline.createInterface({
-            input: fileStream,
-            crlfDelay: Infinity,
-        })
-
-        let movie = {}
-        for await (const line of rl) {
-            if (!line.trim()) {
-                if (Object.keys(movie).length) {
-                    const added = await this.add({
-                        title: movie.title,
-                        year: movie.year,
-                        formatId: await this._getFormatId(movie.format),
-                        actors: movie.actors,
-                        userId,
-                    })
-                    addedMovies.push(added)
-                    movie = {}
-                }
-                continue
-            }
-
-            const [keyRaw, ...rest] = line.split(":")
-            const key = keyRaw.trim().toLowerCase()
-            const value = rest.join(":").trim()
-
-            switch (key) {
-                case "title":
-                    movie.title = value
-                    break
-                case "release year":
-                case "year":
-                    movie.year = parseInt(value)
-                    break
-                case "format":
-                    movie.format = value
-                    break
-                case "stars":
-                case "actors":
-                    movie.actors = value.split(",").map((a) => a.trim())
-                    break
-            }
+        if (title) {
+            where.title = { [Op.like]: `%${title}%` }
         }
 
-        if (Object.keys(movie).length) {
-            const added = await this.add({
-                title: movie.title,
-                year: movie.year,
-                formatId: await this._getFormatId(movie.format),
-                actors: movie.actors,
-                userId,
+        let movieIds = null
+
+        if (actor) {
+            const actorMovies = await db.Movie.findAll({
+                include: [
+                    {
+                        model: db.Actor,
+                        as: "Actors",
+                        where: { name: { [Op.like]: `%${actor}%` } },
+                        attributes: [],
+                    },
+                ],
+                attributes: ["id"],
             })
-            addedMovies.push(added)
+            movieIds = actorMovies.map((m) => m.id)
+            if (movieIds.length === 0) movieIds.push(0)
         }
 
-        return addedMovies
+        if (search) {
+            const actorMovies = await db.Movie.findAll({
+                include: [
+                    {
+                        model: db.Actor,
+                        as: "Actors",
+                        where: { name: { [Op.like]: `%${search}%` } },
+                        attributes: [],
+                    },
+                ],
+                attributes: ["id"],
+            })
+            const actorMovieIds = actorMovies.map((m) => m.id)
+
+            movieIds = [
+                ...new Set([
+                    ...(movieIds || []),
+                    ...(
+                        await db.Movie.findAll({
+                            where: { title: { [Op.like]: `%${search}%` } },
+                            attributes: ["id"],
+                        })
+                    ).map((m) => m.id),
+                    ...actorMovieIds,
+                ]),
+            ]
+            if (movieIds.length === 0) movieIds.push(0)
+        }
+
+        if (movieIds) {
+            where.id = { [Op.in]: movieIds }
+        }
+
+        const sortMap = { id: "id", title: "title", year: "year" }
+
+        return db.Movie.findAll({
+            where,
+            include,
+            distinct: true,
+            order: [[sortMap[sort] || "id", order.toUpperCase()]],
+            limit: Number(limit),
+            offset: Number(offset),
+        })
     }
 }

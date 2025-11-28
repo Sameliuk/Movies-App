@@ -3,30 +3,25 @@ import MovieService from "../services/MovieService.js"
 const movieService = new MovieService()
 
 class MovieController {
-    async getAllMoviesSorted(req, res) {
-        const { sort, order, limit, offset, actor, title, search } = req.query
-        const movies = await movieService.getAllMoviesSorted({
-            sort,
-            order,
-            limit,
-            offset,
-            actor,
-            title,
-            search,
-        })
+    async getMovies(req, res) {
+        const movies = await movieService.getMovies(req.query)
 
-        const formattedMovies = movies.map((movie) => ({
-            id: movie.id,
-            title: movie.title,
-            year: movie.releaseYear ?? movie.year,
-            format: movie.Format?.name,
-            createdAt: movie.createdAt,
-            updatedAt: movie.updatedAt,
+        const formattedMovies = movies.map((m) => ({
+            id: m.id,
+            title: m.title,
+            year: m.year,
+            format: m.Format?.name,
+            createdAt: m.createdAt,
+            updatedAt: m.updatedAt,
         }))
 
-        res.status(200).json({
+        res.json({
             status: 1,
-            meta: { total: formattedMovies.length },
+            meta: {
+                total: formattedMovies.length,
+                limit: Number(req.query.limit) || 20,
+                offset: Number(req.query.offset) || 0,
+            },
             data: formattedMovies,
         })
     }
@@ -70,11 +65,55 @@ class MovieController {
                 title: movie.title,
                 year: movie.year,
                 format: movie.Format.name,
-                actors: movie.Actors,
+                actors:
+                    movie.Actors?.map((actor) => ({
+                        id: actor.id,
+                        name: actor.name,
+                        createdAt: actor.createdAt,
+                        updatedAt: actor.updatedAt,
+                    })) || [],
+
                 createdAt: movie.createdAt,
                 updatedAt: movie.updatedAt,
             },
         })
+    }
+
+    async updateMovie(req, res) {
+        try {
+            const movie = await movieService.updateMovie(
+                req.params.id,
+                req.body
+            )
+
+            if (!movie)
+                return res
+                    .status(404)
+                    .json({ status: 0, message: "Movie not found" })
+
+            const formattedMovie = {
+                id: movie.id,
+                title: movie.title,
+                year: movie.year,
+                format: movie.Format?.name,
+                actors:
+                    movie.Actors?.map((actor) => ({
+                        id: actor.id,
+                        name: actor.name,
+                        createdAt: actor.createdAt,
+                        updatedAt: actor.updatedAt,
+                    })) || [],
+                createdAt: movie.createdAt,
+                updatedAt: movie.updatedAt,
+            }
+
+            res.status(200).json({
+                status: 1,
+                data: formattedMovie,
+            })
+        } catch (err) {
+            res.status(500).json({ status: 0, message: err.message })
+        }
     }
 
     async deleteMovie(req, res) {
@@ -92,7 +131,7 @@ class MovieController {
         const filePath = req.file.path
 
         await movieService.importMoviesFromFile(filePath, req.user.id)
-        const allMovies = await movieService.getAllMoviesSorted({})
+        const allMovies = await movieService.getMovies({})
 
         const formattedMovies = allMovies.map((m) => ({
             id: m.id,

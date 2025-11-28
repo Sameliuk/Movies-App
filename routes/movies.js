@@ -6,11 +6,7 @@ import multer from "multer"
 const router = express.Router()
 const upload = multer({ dest: "uploads/" })
 
-router.get(
-    "/",
-    authMiddleware,
-    MovieController.getAllMoviesSorted.bind(MovieController)
-)
+router.get("/", authMiddleware, MovieController.getMovies.bind(MovieController))
 router.get(
     "/:id",
     authMiddleware,
@@ -20,7 +16,7 @@ router.post("/", authMiddleware, MovieController.addMovie.bind(MovieController))
 router.patch(
     "/:id",
     authMiddleware,
-    MovieController.addMovie.bind(MovieController)
+    MovieController.updateMovie.bind(MovieController)
 )
 router.delete(
     "/:id",
