@@ -1,4 +1,5 @@
 import db from "../models/index.js"
+import { compareUATitles } from "../utils/uaSort.js"
 
 const { Op } = db.Sequelize
 
@@ -152,14 +153,31 @@ export default class MovieRepository {
         }
 
         const sortMap = { id: "id", title: "title", year: "year" }
+        const sortColumn = sortMap[sort] || "id"
 
-        return db.Movie.findAll({
+        const movies = await db.Movie.findAll({
             where,
             include,
             distinct: true,
-            order: [[sortMap[sort] || "id", order.toUpperCase()]],
             limit: Number(limit),
             offset: Number(offset),
         })
+
+        if (sortColumn === "title") {
+            movies.sort((a, b) => {
+                const cmp = compareUATitles(a.title, b.title)
+                return order.toUpperCase() === "ASC" ? cmp : -cmp
+            })
+        } else {
+            movies.sort((a, b) => {
+                if (a[sortColumn] < b[sortColumn])
+                    return order.toUpperCase() === "ASC" ? -1 : 1
+                if (a[sortColumn] > b[sortColumn])
+                    return order.toUpperCase() === "ASC" ? 1 : -1
+                return 0
+            })
+        }
+
+        return movies
     }
 }

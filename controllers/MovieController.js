@@ -173,11 +173,11 @@ class MovieController {
                 })
             }
 
-            await movieService.importMoviesFromFile(req.file.path, req.user.id)
-
-            const allMovies = await movieService.getMovies({})
-
-            const formattedMovies = allMovies.map((m) => ({
+            const addedMovies = await movieService.importMoviesFromFile(
+                req.file.path,
+                req.user.id
+            )
+            const formattedMovies = addedMovies.map((m) => ({
                 id: m.id,
                 title: m.title,
                 year: m.year.toString(),
@@ -186,7 +186,7 @@ class MovieController {
                 updatedAt: m.updatedAt,
             }))
 
-            res.json({
+            res.status(200).json({
                 status: 1,
                 meta: {
                     imported: formattedMovies.length,
@@ -197,7 +197,7 @@ class MovieController {
         } catch (err) {
             res.status(500).json({
                 status: 0,
-                message: "Failed to import movies",
+                message: err.message || "Failed to import movies",
             })
         }
     }

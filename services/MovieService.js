@@ -16,14 +16,13 @@ export default class MovieService {
             format = await this.formatRepository.add({ name: movieData.format })
         }
 
-        // Шукаємо дублікати точно
         const duplicate = await this.movieRepository.findDuplicate({
             title: movieData.title.trim(),
             year: Number(movieData.year),
             formatId: format.id,
         })
 
-        if (duplicate) return duplicate // якщо дубль, повертаємо його
+        if (duplicate) return duplicate
 
         return this.movieRepository.add({
             title: movieData.title.trim(),
